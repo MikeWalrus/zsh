@@ -120,13 +120,16 @@ typedef struct buf_vars *Buf_vars;
 /* The currently active prompt output variables */
 static Buf_vars bv;
 
+/* Should not be percent encoded in URI */
+static int percent_encode_except[256];
+
 /*
  * Expand path p; maximum is npath segments where 0 means the whole path.
  * If tilde is 1, try and find a named directory to use.
  */
 
 static void
-promptpath(char *p, int npath, int tilde)
+promptpath(char *p, int npath, int tilde, int percent_encode)
 {
     char *modp = p;
     Nameddir nd;
@@ -156,11 +159,34 @@ promptpath(char *p, int npath, int tilde)
 	    stradd(modp);
 	    *sptr = cbu;
 	}
-    } else
+    } else if (percent_encode) {
+	char *path = strdup(p);
+	unmetafy(path, NULL);
+	modp = zalloc(3 * strlen(path) + 1);
+	char *ptr_modp = modp;
+	char *ptr_p = path;
+	while (*ptr_p) {
+		if (percent_encode_except[(unsigned char)*ptr_p])
+			*ptr_modp++ = *ptr_p++;
+		else
+			ptr_modp += sprintf(ptr_modp, "%%%02x", (unsigned char) *ptr_p++);
+	}
+	*ptr_modp = 0;
+	metafy(modp, -1, META_REALLOC);
 	stradd(modp);
+    } else {
+	stradd(modp);
+    }
 
     if (p != modp)
 	zsfree(modp);
+}
+
+/**/
+mod_export void
+init_prompt(void) {
+    for (int i = 0; i < 256; i++)
+	percent_encode_except[i] = isalnum(i) || i == '~' || i == '-' || i == '.' || i == '_' || i == '/';
 }
 
 /*
@@ -528,21 +554,24 @@ putpromptchar(int doprint, int endchar)
 		}
 	    switch (*bv->fm) {
 	    case '~':
-		promptpath(pwd, arg, 1);
+		promptpath(pwd, arg, 1, 0);
 		break;
 	    case 'd':
 	    case '/':
-		promptpath(pwd, arg, 0);
+		promptpath(pwd, arg, 0, 0);
+		break;
+	    case 'p':
+		promptpath(pwd, 0, 0, 1);
 		break;
 	    case 'c':
 	    case '.':
-		promptpath(pwd, arg ? arg : 1, 1);
+		promptpath(pwd, arg ? arg : 1, 1, 0);
 		break;
 	    case 'C':
-		promptpath(pwd, arg ? arg : 1, 0);
+		promptpath(pwd, arg ? arg : 1, 0, 0);
 		break;
 	    case 'N':
-		promptpath(scriptname ? scriptname : argzero, arg, 0);
+		promptpath(scriptname ? scriptname : argzero, arg, 0, 0);
 		break;
 	    case 'h':
 	    case '!':
@@ -926,10 +955,10 @@ putpromptchar(int doprint, int endchar)
 		if (funcstack && funcstack->tp != FS_SOURCE &&
 		    !IN_EVAL_TRAP())
 		    promptpath(funcstack->filename ? funcstack->filename : "",
-			       arg, 0);
+			       arg, 0, 0);
 		else
 		    promptpath(scriptfilename ? scriptfilename : argzero,
-			       arg, 0);
+			       arg, 0, 0);
 		break;
 	    case '\0':
 		return 0;
