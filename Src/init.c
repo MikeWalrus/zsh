@@ -1901,6 +1901,7 @@ zsh_main(UNUSED(int argc), char **argv)
 
     SHTTY = -1;
     init_io(cmd);
+    init_prompt();
     setupvals(cmd, runscript, zsh_name);
 
     init_signals();
